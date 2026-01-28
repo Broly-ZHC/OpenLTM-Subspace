@@ -70,10 +70,13 @@ class UnivariateDatasetBenchmark(Dataset):
         border1 = border1s[self.set_type]
         border2 = border2s[self.set_type]
 
-        if isinstance(df_raw[df_raw.columns[0]][2], str):
-            data = df_raw[df_raw.columns[1:]].values
+        if 'date' in str(df_raw.columns[0]).lower():
+            df_data = df_raw.drop(columns=[df_raw.columns[0]])
         else:
-            data = df_raw.values
+            df_data = df_raw.select_dtypes(include=[np.number])
+        if df_data.shape[1] == 0:
+            raise ValueError(f'No numeric columns found in: {dataset_file_path}')
+        data = df_data.values
 
         if self.scale:
             train_data = data[border1s[0]:border2s[0]]
@@ -183,10 +186,13 @@ class MultivariateDatasetBenchmark(Dataset):
         border1 = border1s[self.set_type]
         border2 = border2s[self.set_type]
 
-        if isinstance(df_raw[df_raw.columns[0]][2], str):
-            data = df_raw[df_raw.columns[1:]].values
+        if 'date' in str(df_raw.columns[0]).lower():
+            df_data = df_raw.drop(columns=[df_raw.columns[0]])
         else:
-            data = df_raw.values
+            df_data = df_raw.select_dtypes(include=[np.number])
+        if df_data.shape[1] == 0:
+            raise ValueError(f'No numeric columns found in: {dataset_file_path}')
+        data = df_data.values
 
         if self.scale:
             train_data = data[border1s[0]:border2s[0]]
