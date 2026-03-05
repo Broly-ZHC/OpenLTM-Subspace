@@ -165,6 +165,17 @@ class Exp_Forecast(Exp_Basic):
                         outputs = outputs[:, :, -1]
                         batch_y = batch_y[:, :, -1]
                 loss = criterion(outputs, batch_y)
+
+                # ---- Auxiliary Loss (Subspace Clustering / VQ) ----
+                main_loss = loss
+                inner_model = self.model.module if isinstance(self.model, (nn.DataParallel, DDP)) else self.model
+                if hasattr(inner_model, '_aux_loss') and inner_model._aux_loss is not None:
+                    aux_weight = getattr(self.args, 'vq_beta', 1.0)
+                    total_loss = main_loss + aux_weight * inner_model._aux_loss
+                else:
+                    total_loss = main_loss
+                # --------------------------------------------------
+
                 if (i + 1) % 100 == 0:
                     if (self.args.ddp and self.args.local_rank == 0) or not self.args.ddp:
                         print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
@@ -174,7 +185,7 @@ class Exp_Forecast(Exp_Basic):
                         iter_count = 0
                         time_now = time.time()
 
-                loss.backward()
+                total_loss.backward()
                 model_optim.step()
 
             if (self.args.ddp and self.args.local_rank == 0) or not self.args.ddp:

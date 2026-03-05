@@ -48,6 +48,12 @@ if __name__ == '__main__':
     parser.add_argument('--visualize', action='store_true', help='visualize', default=False)
     parser.add_argument('--flash_attention', action='store_true', help='flash attention', default=False)
 
+    # subspace grouping
+    parser.add_argument('--enc_in', type=int, default=862, help='encoder input size / total number of variables')
+    parser.add_argument('--num_groups', type=int, default=16, help='number of variable groups for subspace routing')
+    parser.add_argument('--d_var', type=int, default=64, help='variable embedding dimension for subspace routing')
+    parser.add_argument('--vq_beta', type=float, default=0.25, help='weight for auxiliary VQ/clustering loss')
+
     # adaptation
     parser.add_argument('--adaptation', action='store_true', help='adaptation', default=False)
     parser.add_argument('--pretrain_model_path', type=str, default='pretrain_model.pth', help='pretrain model path')
