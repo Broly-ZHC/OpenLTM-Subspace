@@ -34,9 +34,10 @@ class Model(nn.Module):
         warmup_steps = getattr(configs, 'warmup_steps', 0)
         self.num_groups = num_groups
         self.variable_grouping = VariableGrouping(
-            num_vars=num_vars,        # V = configs.enc_in
-            d_var=d_var,              # D_var
-            num_groups=num_groups,    # G
+            num_vars=num_vars,              # V = configs.enc_in
+            d_var=d_var,                    # D_var
+            num_groups=num_groups,          # G
+            seq_len=configs.input_token_len,  # T, for attn_proj
             warmup_steps=warmup_steps,
         )
         self.register_buffer('_current_step', torch.zeros(1, dtype=torch.long), persistent=True)
@@ -63,6 +64,19 @@ class Model(nn.Module):
         self.head = nn.Linear(configs.d_model, configs.output_token_len)
         self.use_norm = configs.use_norm
 
+        # ---- Global Shared Detail Reconstruction (Non-linear MLP) ----
+        pred_len = (configs.seq_len // configs.input_token_len) * configs.output_token_len
+        hidden_dim = getattr(configs, 'd_model', 512)
+
+        self.detail_proj = nn.Sequential(
+            nn.Linear(configs.seq_len, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(getattr(configs, 'dropout', 0.1)),
+            nn.Linear(hidden_dim, pred_len)
+        )
+        nn.init.zeros_(self.detail_proj[-1].weight)  # zero-init: residual starts at 0
+        nn.init.zeros_(self.detail_proj[-1].bias)
+
     def forecast(self, x, x_mark, y_mark):
         # x: [B, T, V]
         if self.use_norm:
@@ -74,10 +88,11 @@ class Model(nn.Module):
 
         B, T, V = x.shape
         G = self.num_groups
+        x_raw = x  # [B, T, V] normalized input, saved for detail path
 
         # ---- Step 1: Subspace Routing ----
-        x_group, group_id, aux_loss = self.variable_grouping(x, step=self._current_step.item())
-        # x_group: [B, T, G], group_id: [V], aux_loss: scalar
+        x_group, group_id, aux_loss, attn_weights_ste, a_route = self.variable_grouping(x, step=self._current_step.item())
+        # x_group: [B, T, G], group_id: [V], aux_loss: scalar, attn_weights_ste: [B, V, G], a_route: [V, G] STE
         self._aux_loss = aux_loss
 
         # ---- Step 2: CI Logic on G groups (replacing V with G) ----
@@ -93,28 +108,27 @@ class Model(nn.Module):
         embed_out = embed_out.reshape(B, G * N, -1)  # [B, G, N, D] -> [B, G*N, D]
         embed_out, attns = self.blocks(embed_out, n_vars=G, n_tokens=N)  # [B, G*N, D]
 
-        # ---- Step 3: Inverse Routing (G -> V) ----
+        # ---- Step 3: Head in Group Space ----
         # [B, G, N, D]
         enc_out = embed_out.reshape(B, G, N, -1)  # [B, G*N, D] -> [B, G, N, D]
-        # [B, N, G, D]
-        enc_out = enc_out.permute(0, 2, 1, 3)  # [B, G, N, D] -> [B, N, G, D]
-        # [V, G]
-        a_hard = F.one_hot(group_id, num_classes=self.num_groups).to(enc_out.dtype)  # [V] -> [V, G]
-        # [B, N, V, D]
-        out_expanded = torch.einsum('btgd,vg->btvd', enc_out, a_hard)  # [B, N, G, D] x [V, G] -> [B, N, V, D]
+        # [B, G, N, P_out]
+        y_group_patches = self.head(enc_out)  # [B, G, N, D] -> [B, G, N, P_out]
+        # [B, pred_len, G]  where pred_len = N * P_out
+        y_group = y_group_patches.reshape(B, G, -1).permute(0, 2, 1)  # [B, G, N*P_out] -> [B, N*P_out, G]
 
-        # ---- Step 4: Prediction Head ----
-        # [B, N, V, P_out]
-        dec_out = self.head(out_expanded)  # [B, N, V, D] -> [B, N, V, P_out]
-        # [B, V, N, P_out]
-        dec_out = dec_out.permute(0, 2, 1, 3)  # [B, N, V, P_out] -> [B, V, N, P_out]
-        # [B, V, N * P_out]
-        dec_out = dec_out.reshape(B, V, -1)  # [B, V, N, P_out] -> [B, V, N*P_out]
-        # [B, N * P_out, V]
-        dec_out = dec_out.permute(0, 2, 1)  # [B, V, N*P_out] -> [B, N*P_out, V]
+        # ---- Step 4: Dual-Path Reconstruction ----
+        # Path 1: Group Trend Broadcast — magnitude-correct 1:1 mapping via a_route [V, G]
+        y_base = torch.einsum('bpg,vg->bpv', y_group, a_route)  # [B, pred_len, G] x [V, G] -> [B, pred_len, V]
+
+        # Path 2: Global Shared Detail Reconstruction (MLP)
+        x_raw_v = x_raw.permute(0, 2, 1)  # [B, T, V] -> [B, V, T]
+        y_detail_v = self.detail_proj(x_raw_v)  # [B, V, T] -> [B, V, pred_len]
+        y_detail = y_detail_v.permute(0, 2, 1)  # [B, V, pred_len] -> [B, pred_len, V]
+
+        dec_out = y_base + y_detail  # [B, pred_len, V]
 
         if self.use_norm:
-            dec_out = dec_out * stdev + means  # [B, N*P_out, V]
+            dec_out = dec_out * stdev + means  # [B, pred_len, V]
         if self.output_attention:
             return dec_out, attns
         return dec_out

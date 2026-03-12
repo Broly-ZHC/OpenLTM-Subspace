@@ -296,10 +296,23 @@ class Exp_Forecast(Exp_Basic):
             trues = trues[:, :, -1]
         mae, mse, rmse, mape, mspe, smape = metric(preds, trues)
         print('mse:{}, mae:{}'.format(mse, mae))
-        f = open("result_long_term_forecast.txt", 'a')
-        f.write(setting + "  \n")
-        f.write('mse:{}, mae:{}'.format(mse, mae))
-        f.write('\n')
-        f.write('\n')
-        f.close()
+
+        model_name = self.args.model
+        dataset_name = self.args.data
+        num_groups = getattr(self.args, 'num_groups', 16)
+        task_name = self.args.task_name
+
+        result_dir = os.path.join('./result', model_name, dataset_name)
+        os.makedirs(result_dir, exist_ok=True)
+        file_path = os.path.join(result_dir, f"{num_groups}_{task_name}.txt")
+
+        train_time_cost = getattr(self, '_train_time_cost', None)
+        with open(file_path, 'a') as f:
+            f.write(f"========== Experiment Info ==========\n")
+            f.write(f"Setting: {setting}\n")
+            f.write(f"MSE: {mse:.6f}, MAE: {mae:.6f}\n")
+            if train_time_cost is not None:
+                f.write(f"Total Training Time: {train_time_cost:.2f} seconds\n")
+                f.write(f"Average Speed: ~ logged in console s/iter\n")
+            f.write(f"=====================================\n\n")
         return

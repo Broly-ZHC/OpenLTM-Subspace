@@ -6,7 +6,7 @@ python run.py \
   --root_path ./dataset/traffic/ \
   --data_path traffic.csv \
   --model_id traffic_96_96 \
-  --model timer_xl \
+  --model timer_xl_subspace \
   --data MultivariateDatasetBenchmark \
   --seq_len 96 \
   --input_token_len 96 \

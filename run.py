@@ -1,4 +1,5 @@
 import os
+import time
 import argparse
 import random
 import numpy as np
@@ -159,7 +160,9 @@ if __name__ == '__main__':
                 args.cosine,
                 args.des, ii)
             print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
+            _train_start = time.time()
             exp.train(setting)
+            exp._train_time_cost = time.time() - _train_start
             print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
             if not args.ddp and not args.dp:
                 exp.test(setting)

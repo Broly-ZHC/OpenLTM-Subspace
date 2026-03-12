@@ -9,6 +9,7 @@ class VariableGrouping(nn.Module):
         num_vars: int,
         d_var: int,
         num_groups: int,
+        seq_len: int,
         warmup_steps: int = 0,
         vq_beta: float = 0.25,
         softmax_temperature: float = 1.0,
@@ -20,7 +21,10 @@ class VariableGrouping(nn.Module):
         self.num_vars = int(num_vars)
         self.d_var = int(d_var)
         self.num_groups = int(num_groups)
+        self.seq_len = int(seq_len)
         self.warmup_steps = int(warmup_steps)
+
+        self.attn_proj = nn.Linear(self.seq_len, 1)  # [T] -> [1], compresses time dim to a scalar score per variable
 
         self.vq_beta = float(vq_beta)
         self.softmax_temperature = float(softmax_temperature)
@@ -94,8 +98,13 @@ class VariableGrouping(nn.Module):
 
             aux_loss = self.vq_loss(group_id=group_id)
 
-        x_group_sum = torch.einsum("btv,vg->btg", x, a)  # [B, T, V] x [V, G] -> [B, T, G]
-        group_count = a.sum(dim=0).clamp_min(1.0)  # [V, G] -> [G]
-        x_group = x_group_sum / group_count.view(1, 1, -1)  # [G] -> [1, 1, G]; [B, T, G] / [1, 1, G] -> [B, T, G]
+        # ---- Soft Attention Aggregation ----
+        attn_scores = self.attn_proj(x.transpose(1, 2)).squeeze(-1)  # [B, T, V] -> [B, V, T] -> [B, V, 1] -> [B, V]
+        a_mask = a_hard.unsqueeze(0)  # [V, G] -> [1, V, G]
+        masked_scores = attn_scores.unsqueeze(-1) + (1.0 - a_mask) * -1e9  # [B, V, 1] + [1, V, G] -> [B, V, G]
+        attn_weights = F.softmax(masked_scores, dim=1)  # [B, V, G] softmax over variable dim (V)
+        attn_weights_ste = attn_weights * a.unsqueeze(0)  # [B, V, G] * [1, V, G] -> [B, V, G]; pipes STE grad to codebook
+        x_group = torch.einsum('btv,bvg->btg', x, attn_weights_ste)  # [B, T, V] x [B, V, G] -> [B, T, G]
+        # ------------------------------------
 
-        return x_group, group_id, aux_loss
+        return x_group, group_id, aux_loss, attn_weights_ste, a  # attn_weights_ste: [B, V, G]; a: [V, G] STE routing matrix

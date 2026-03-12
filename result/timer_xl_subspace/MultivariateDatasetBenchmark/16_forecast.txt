@@ -1,0 +1,7 @@
+========== Experiment Info ==========
+Setting: forecast_electricity_96_96_subspace_timer_xl_subspace_MultivariateDatasetBenchmark_sl96_it96_ot96_lr0.0001_bt16_wd0_el1_dm512_dff2048_nh8_cosFalse_test_0
+MSE: 0.177636, MAE: 0.275254
+Total Training Time: 420.92 seconds
+Average Speed: ~ logged in console s/iter
+=====================================
+
