@@ -1,0 +1,44 @@
+textmodel_id: traffic_96_192_subspace
+dataset: traffic
+model: timerxlsubspace
+seq_len: 96
+pred_len: 192
+features: M
+mse: 0.53972995281
+mae: 0.34779068828
+rmse: 0.73466312885
+mape: 4.1059069633
+mspe: 501738.8125
+total_time_seconds: 1027.09
+avg_batch_time_seconds: 171.182291
+
+# Setting: forecast
+# Experiment ID: traffic_96_192_subspace
+# Description: Exp
+# Epoch Details:
+# Epochs completed: 6
+# Total train epochs time: 640.89s
+# Per-Epoch Time (seconds):
+epoch_1_time: 103.2141
+epoch_2_time: 98.6558
+epoch_3_time: 105.2790
+epoch_4_time: 116.1505
+epoch_5_time: 107.0823
+epoch_6_time: 110.5039
+
+# Per-Epoch Train Loss:
+epoch_1_train_loss: 0.361876
+epoch_2_train_loss: 0.291274
+epoch_3_train_loss: 0.289227
+epoch_4_train_loss: 0.288994
+epoch_5_train_loss: 0.289131
+epoch_6_train_loss: 0.289459
+
+# Per-Epoch Validation Loss:
+epoch_1_vali_loss: 0.450893
+epoch_2_vali_loss: 0.445717
+epoch_3_vali_loss: 0.445055
+epoch_4_vali_loss: 0.444880
+epoch_5_vali_loss: 0.446058
+epoch_6_vali_loss: 0.445454
+

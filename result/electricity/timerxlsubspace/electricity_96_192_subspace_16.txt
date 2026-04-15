@@ -1,0 +1,56 @@
+textmodel_id: electricity_96_192_subspace
+dataset: electricity
+model: timerxlsubspace
+seq_len: 96
+pred_len: 192
+features: M
+mse: 0.18942767382
+mae: 0.28560975194
+rmse: 0.43523290753
+mape: 2.7399840355
+mspe: 641091.5625
+total_time_seconds: 1831.59
+avg_batch_time_seconds: 183.158936
+
+# Setting: forecast
+# Experiment ID: electricity_96_192_subspace
+# Description: Exp
+# Epoch Details:
+# Epochs completed: 10
+# Total train epochs time: 1350.66s
+# Per-Epoch Time (seconds):
+epoch_1_time: 126.8179
+epoch_2_time: 133.8978
+epoch_3_time: 134.3966
+epoch_4_time: 129.8139
+epoch_5_time: 138.7700
+epoch_6_time: 142.4001
+epoch_7_time: 142.7800
+epoch_8_time: 136.2672
+epoch_9_time: 137.6682
+epoch_10_time: 127.8448
+
+# Per-Epoch Train Loss:
+epoch_1_train_loss: 0.240439
+epoch_2_train_loss: 0.194437
+epoch_3_train_loss: 0.191975
+epoch_4_train_loss: 0.191975
+epoch_5_train_loss: 0.192291
+epoch_6_train_loss: 0.191938
+epoch_7_train_loss: 0.192100
+epoch_8_train_loss: 0.192133
+epoch_9_train_loss: 0.191949
+epoch_10_train_loss: 0.191953
+
+# Per-Epoch Validation Loss:
+epoch_1_vali_loss: 0.171135
+epoch_2_vali_loss: 0.167499
+epoch_3_vali_loss: 0.167634
+epoch_4_vali_loss: 0.167308
+epoch_5_vali_loss: 0.167308
+epoch_6_vali_loss: 0.167255
+epoch_7_vali_loss: 0.167255
+epoch_8_vali_loss: 0.167255
+epoch_9_vali_loss: 0.167255
+epoch_10_vali_loss: 0.167255
+

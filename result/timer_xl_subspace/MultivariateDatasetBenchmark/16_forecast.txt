@@ -5,3 +5,17 @@ Total Training Time: 420.92 seconds
 Average Speed: ~ logged in console s/iter
 =====================================
 
+========== Experiment Info ==========
+Setting: forecast_electricity_96_96_subspace_timer_xl_subspace_MultivariateDatasetBenchmark_sl96_it96_ot96_lr0.0001_bt16_wd0_el1_dm512_dff2048_nh8_cosFalse_test_0
+MSE: 0.177643, MAE: 0.275327
+Total Training Time: 314.05 seconds
+Average Speed: ~ logged in console s/iter
+=====================================
+
+========== Experiment Info ==========
+Setting: forecast_electricity_672_96_subspace_timer_xl_subspace_MultivariateDatasetBenchmark_sl672_it672_ot96_lr0.0001_bt16_wd0_el1_dm512_dff2048_nh8_cosFalse_test_0
+MSE: 0.149157, MAE: 0.254437
+Total Training Time: 1701.63 seconds
+Average Speed: ~ logged in console s/iter
+=====================================
+

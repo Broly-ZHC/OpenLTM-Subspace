@@ -1,5 +1,6 @@
 import os
 import time
+import datetime
 import warnings
 import torch
 import numpy as np
@@ -140,10 +141,15 @@ class Exp_Forecast(Exp_Basic):
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(model_optim, T_max=self.args.tmax, eta_min=1e-8)
         criterion = self._select_criterion()
         
+        # Collect per-epoch statistics for the result file
+        self._epoch_stats = []
+
         for epoch in range(self.args.train_epochs):
             iter_count = 0
             self.model.train()
             epoch_time = time.time()
+            epoch_train_loss = 0.0
+            epoch_train_count = 0
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
                 iter_count += 1
                 model_optim.zero_grad()
@@ -176,6 +182,10 @@ class Exp_Forecast(Exp_Basic):
                     total_loss = main_loss
                 # --------------------------------------------------
 
+                # Accumulate batch loss for epoch-level average
+                epoch_train_loss += loss.item() * batch_x.shape[0]
+                epoch_train_count += batch_x.shape[0]
+
                 if (i + 1) % 100 == 0:
                     if (self.args.ddp and self.args.local_rank == 0) or not self.args.ddp:
                         print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
@@ -188,8 +198,11 @@ class Exp_Forecast(Exp_Basic):
                 total_loss.backward()
                 model_optim.step()
 
+            epoch_train_time = time.time() - epoch_time
+            avg_train_loss = epoch_train_loss / max(epoch_train_count, 1)
+
             if (self.args.ddp and self.args.local_rank == 0) or not self.args.ddp:
-                print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+                print("Epoch: {} cost time: {}".format(epoch + 1, epoch_train_time))
 
             vali_loss = self.vali(vali_data, vali_loader, criterion, is_test=self.args.valid_last)
             test_loss = self.vali(test_data, test_loader, criterion, is_test=True)
@@ -209,6 +222,13 @@ class Exp_Forecast(Exp_Basic):
                 adjust_learning_rate(model_optim, epoch + 1, self.args)
             if self.args.ddp:
                 train_loader.sampler.set_epoch(epoch + 1)
+
+            self._epoch_stats.append({
+                'epoch': epoch + 1,
+                'train_loss': avg_train_loss,
+                'vali_loss': float(vali_loss),
+                'epoch_time': epoch_train_time,
+            })
                 
         best_model_path = path + '/' + 'checkpoint.pth'
         if self.args.ddp:
@@ -297,22 +317,102 @@ class Exp_Forecast(Exp_Basic):
         mae, mse, rmse, mape, mspe, smape = metric(preds, trues)
         print('mse:{}, mae:{}'.format(mse, mae))
 
-        model_name = self.args.model
-        dataset_name = self.args.data
-        num_groups = getattr(self.args, 'num_groups', 16)
-        task_name = self.args.task_name
+        # ---- Determine output path and filename ----
+        def _normalize_model_name(name: str) -> str:
+            return ''.join(ch for ch in name.lower() if ch.isalnum())
 
-        result_dir = os.path.join('./result', model_name, dataset_name)
+        def _infer_dataset() -> str:
+            rp = getattr(self.args, 'root_path', '') or ''
+            rp_norm = rp.replace('\\', '/').rstrip('/')
+            base = os.path.basename(rp_norm) if rp_norm else ''
+            return base or (
+                getattr(self.args, 'data_path', '').split('.')[0]
+                or getattr(self.args, 'data', 'dataset')
+            )
+
+        model_name      = _normalize_model_name(getattr(self.args, 'model', 'model'))
+        dataset_name    = _infer_dataset()
+        task_name       = getattr(self.args, 'task_name', 'task')
+        seq_len         = int(getattr(self.args, 'seq_len', 0))
+        input_token_len = int(getattr(self.args, 'input_token_len', seq_len))
+        pred_len        = int(getattr(self.args, 'test_pred_len', 0))
+        num_groups      = int(getattr(self.args, 'num_groups', 16))
+        enc_in          = int(getattr(self.args, 'enc_in', 0))
+
+        # "features": M = multivariate (enc_in > 1), S = univariate
+        features = 'M' if enc_in > 1 else 'S'
+
+        # model_id: use the one from run.py args, else reconstruct
+        model_id = getattr(
+            self.args, 'model_id',
+            f'{dataset_name}_{input_token_len}_{pred_len}'
+        )
+
+        # Path: ./result/{dataset}/{model}/model_id_numgroups.txt
+        result_dir = os.path.join('./result', dataset_name, model_name)
         os.makedirs(result_dir, exist_ok=True)
-        file_path = os.path.join(result_dir, f"{num_groups}_{task_name}.txt")
+        file_path = os.path.join(result_dir, f"{model_id}_{num_groups}.txt")
 
+        # ---- Collect epoch statistics ----
+        epoch_stats     = getattr(self, '_epoch_stats', [])
         train_time_cost = getattr(self, '_train_time_cost', None)
+
+        # Average batch time (total_train_time / epochs_ran)
+        if train_time_cost and epoch_stats:
+            total_epochs_ran = len(epoch_stats)
+            avg_batch_time = train_time_cost / total_epochs_ran
+        else:
+            avg_batch_time = None
+
+        # Count existing runs to assign run number
+        run_no = 1
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r') as _rf:
+                    run_no = sum(
+                        1 for line in _rf
+                        if line.startswith('textmodel_id:')
+                    ) + 1
+            except Exception:
+                run_no = 1
+
+        total_time_seconds = float(train_time_cost) if train_time_cost else 0.0
+        total_train_epochs_time = sum(s['epoch_time'] for s in epoch_stats) if epoch_stats else 0.0
+
         with open(file_path, 'a') as f:
-            f.write(f"========== Experiment Info ==========\n")
-            f.write(f"Setting: {setting}\n")
-            f.write(f"MSE: {mse:.6f}, MAE: {mae:.6f}\n")
-            if train_time_cost is not None:
-                f.write(f"Total Training Time: {train_time_cost:.2f} seconds\n")
-                f.write(f"Average Speed: ~ logged in console s/iter\n")
-            f.write(f"=====================================\n\n")
+            # ---- Core metrics block ----
+            f.write(f"textmodel_id: {model_id}\n")
+            f.write(f"dataset: {dataset_name}\n")
+            f.write(f"model: {model_name}\n")
+            f.write(f"seq_len: {seq_len}\n")
+            f.write(f"pred_len: {pred_len}\n")
+            f.write(f"features: {features}\n")
+            f.write(f"mse: {mse:.11g}\n")
+            f.write(f"mae: {mae:.11g}\n")
+            f.write(f"rmse: {rmse:.11g}\n")
+            f.write(f"mape: {mape:.11g}\n")
+            f.write(f"mspe: {mspe:.11g}\n")
+            f.write(f"total_time_seconds: {total_time_seconds:.2f}\n")
+            if avg_batch_time is not None:
+                f.write(f"avg_batch_time_seconds: {avg_batch_time:.6f}\n")
+            f.write(f"\n")
+            # ---- Epoch details block ----
+            f.write(f"# Setting: {task_name}\n")
+            f.write(f"# Experiment ID: {model_id}\n")
+            f.write(f"# Description: Exp\n")
+            f.write(f"# Epoch Details:\n")
+            f.write(f"# Epochs completed: {len(epoch_stats)}\n")
+            f.write(f"# Total train epochs time: {total_train_epochs_time:.2f}s\n")
+            f.write(f"# Per-Epoch Time (seconds):\n")
+            for s in epoch_stats:
+                f.write(f"epoch_{s['epoch']}_time: {s['epoch_time']:.4f}\n")
+            f.write(f"\n")
+            f.write(f"# Per-Epoch Train Loss:\n")
+            for s in epoch_stats:
+                f.write(f"epoch_{s['epoch']}_train_loss: {s['train_loss']:.6f}\n")
+            f.write(f"\n")
+            f.write(f"# Per-Epoch Validation Loss:\n")
+            for s in epoch_stats:
+                f.write(f"epoch_{s['epoch']}_vali_loss: {s['vali_loss']:.6f}\n")
+            f.write(f"\n")
         return
